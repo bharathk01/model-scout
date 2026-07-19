@@ -2,8 +2,10 @@ name: Daily Model Digest
 
 on:
   schedule:
-    # 23:30 UTC — adjust to whatever "just before your day ends" means in your timezone.
-    - cron: "30 23 * * *"
+    # GitHub Actions cron is always UTC — there's no timezone field. This is
+    # 18:00 UTC = 23:30 IST (IST is UTC+5:30), i.e. just before the day ends
+    # in India. Adjust the UTC time if you want a different IST time.
+    - cron: "0 18 * * *"
   workflow_dispatch: {} # lets you trigger a run manually from the Actions tab, for testing
 
 permissions:
