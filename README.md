@@ -124,6 +124,17 @@ resolve to a brand-new preview model with a much stricter introductory quota
 `gemini-3.1-flash-lite` (the default above) is what this repo was verified
 against.
 
+**A free/small model won't always run the full skill.** `gemini-3.1-flash-lite`
+is small enough that it sometimes shortcuts the discover-models checklist —
+e.g. checking only one category instead of all four, or (before the prompt
+hardening in this repo) skipping the curator step entirely. The instructions
+push hard against this, but a small model isn't fully deterministic — expect
+occasional partial runs, not guaranteed 100% compliance every time. If you
+want every run to reliably execute the complete checklist, switch to a larger
+model (a paid Anthropic/OpenAI model, or Gemini's non-lite tier) — bigger
+models follow multi-step instructions far more consistently. It's a
+cost-vs-reliability tradeoff, not a bug to fix in code.
+
 ### Email notification (optional)
 
 Set `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`, `EMAIL_TO` (and
