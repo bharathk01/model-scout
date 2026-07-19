@@ -15,6 +15,11 @@ Steps:
 4. Assemble a digest titled "Trending on Hugging Face — week of <date>".
 5. Call `send_digest`.
 
+Rules:
+- Prefer models with clear community interest.
+- Stay factual and avoid speculation.
+- Keep the digest concise.
+
 This skill exists to show the point of skills-as-data: it reuses the exact
 same tools and subagent as `new-models-digest`. The only new thing added to
 the system is this file.

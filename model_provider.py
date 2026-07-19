@@ -20,9 +20,12 @@ Examples:
         LOCAL_MODEL_BASE_URL=http://localhost:8000/v1
 """
 
+import logging
 import os
 
 from langchain_core.language_models.chat_models import BaseChatModel
+
+logger = logging.getLogger(__name__)
 
 
 def get_model(provider: str | None = None, model: str | None = None) -> BaseChatModel:
@@ -35,6 +38,7 @@ def get_model(provider: str | None = None, model: str | None = None) -> BaseChat
     """
     provider = (provider or os.getenv("MODEL_PROVIDER", "anthropic")).lower()
     model = model or os.getenv("MODEL_NAME")
+    logger.info("Selecting model provider=%s model=%s", provider, model or "<default>")
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
@@ -51,7 +55,7 @@ def get_model(provider: str | None = None, model: str | None = None) -> BaseChat
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(model=model or "gemini-2.0-flash")
+        return ChatGoogleGenerativeAI(model=model or "gemini-3.1-flash-lite")
 
     if provider == "local":
         from langchain_openai import ChatOpenAI
@@ -65,6 +69,8 @@ def get_model(provider: str | None = None, model: str | None = None) -> BaseChat
             api_key=os.getenv("LOCAL_MODEL_API_KEY", "not-needed"),
         )
 
+    supported_providers = ("anthropic", "azure", "gemini", "local")
     raise ValueError(
-        f"Unknown provider {provider!r}. Use: anthropic | azure | gemini | local."
+        f"Unsupported provider {provider!r}. Supported values: "
+        f"{', '.join(supported_providers)}"
     )

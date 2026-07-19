@@ -3,6 +3,10 @@
 
 # Generated digests
 digests/
+seen_models.json
+
+# Log files
+logs/
 
 # Python
 __pycache__/

@@ -1,0 +1,50 @@
+name: Daily Model Digest
+
+on:
+  schedule:
+    # 23:30 UTC — adjust to whatever "just before your day ends" means in your timezone.
+    - cron: "30 23 * * *"
+  workflow_dispatch: {} # lets you trigger a run manually from the Actions tab, for testing
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # actions/cache refuses to overwrite an existing key, so we save under a
+      # unique key every run and restore via prefix match to get the latest.
+      - name: Restore seen-models state
+        uses: actions/cache@v4
+        with:
+          path: seen_models.json
+          key: seen-models-${{ github.run_id }}
+          restore-keys: |
+            seen-models-
+
+      - name: Run digest
+        env:
+          MODEL_PROVIDER: gemini
+          MODEL_NAME: gemini-3.1-flash-lite
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: >
+          python agent.py "Check for any new Hugging Face models released
+          today across every category — text generation, reasoning and
+          agentic models, embeddings, vision, and anything else notable.
+          Email me a digest only if something genuinely new was found."

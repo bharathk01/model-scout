@@ -19,16 +19,21 @@ Run:
     python agent.py "any new text-to-image models in the last 12 hours?"
 """
 
+import logging
 import sys
 from pathlib import Path
 
 from deepagents import create_deep_agent
 from dotenv import load_dotenv
 
+from logging_config import configure_logging
 from model_provider import get_model
+from prompts import CURATOR_PROMPT, SYSTEM_PROMPT
 from tools import get_recent_models, get_trending_models, send_digest
 
 load_dotenv()  # read provider settings from a local .env if present
+configure_logging()
+logger = logging.getLogger("modelscout.agent")
 
 SKILLS_DIR = str(Path(__file__).parent / "skills")
 
@@ -37,32 +42,34 @@ SKILLS_DIR = str(Path(__file__).parent / "skills")
 # curated result the subagent hands back.
 curator = {
     "name": "curator",
-    "description": "Filters and ranks a raw Hugging Face model list into a short, notable shortlist with plain-language notes.",
-    "system_prompt": (
-        "You curate Hugging Face model listings. Given a raw list, drop noise "
-        "(personal fine-tunes, zero-traction experiments) and return at most 5 "
-        "notable models, each with one plain sentence on why it might matter. "
-        "Be concise and never invent models that are not in the input."
+    "description": (
+        "Curates raw Hugging Face model listings into a concise, "
+        "high-signal shortlist."
     ),
+    "system_prompt": CURATOR_PROMPT,
 }
 
-agent = create_deep_agent(
-    model=get_model(),  # provider chosen via MODEL_PROVIDER env var
-    tools=[get_recent_models, get_trending_models, send_digest],
-    system_prompt=(
-        "You are ModelScout, an assistant that watches Hugging Face for model "
-        "launches. At startup you only see skill names and descriptions. When a "
-        "request matches a skill, read that skill's SKILL.md and follow its "
-        "steps exactly, delegating to the 'curator' subagent where the skill "
-        "says to. Do not improvise a workflow that a skill already defines."
-    ),
-    skills=[SKILLS_DIR],
-    subagents=[curator],
-)
+
+def build_agent():
+    """Create and configure the ModelScout DeepAgent."""
+
+    model = get_model()
+    logger.info("Building ModelScout agent with model=%s", type(model).__name__)
+    return create_deep_agent(
+        model=model,
+        tools=[get_recent_models, get_trending_models, send_digest],
+        system_prompt=SYSTEM_PROMPT,
+        skills=[SKILLS_DIR],
+        subagents=[curator],
+    )
+
+
+agent = build_agent()
 
 
 def main() -> None:
     prompt = " ".join(sys.argv[1:]) or "Any new text-generation models in the last 24 hours?"
+    logger.info("Running agent, prompt=%r", prompt)
     result = agent.invoke({"messages": [{"role": "user", "content": prompt}]})
     print(result["messages"][-1].content)
 
