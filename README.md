@@ -21,9 +21,11 @@ model-scout/
 ├── prompts.py                      # system + curator subagent prompts
 ├── tools.py                        # real Hugging Face calls (no API key needed)
 ├── SMTP_SETUP.md                   # optional email configuration guide
-└── skills/
-    ├── discover-models/SKILL.md          # workflow #1
-    └── discover-trending-models/SKILL.md # workflow #2 — reuses the same tools + subagent
+├── skills/
+│   ├── discover-models/SKILL.md          # workflow #1
+│   └── discover-trending-models/SKILL.md # workflow #2 — reuses the same tools + subagent
+└── .github/workflows/
+    └── daily-digest.yml            # runs the agent on a schedule, no server needed
 ```
 
 ## Getting started
@@ -53,16 +55,22 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Open `.env` and fill in one provider block. For your local setup, use:
+Open `.env` and fill in one provider block. The easiest way to get running:
+Google Gemini has a genuinely free tier (no card) with a large context
+window — get a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+and set:
 
 ```ini
-MODEL_PROVIDER=local
-MODEL_NAME=qwen3-4b-instruct
-LOCAL_MODEL_BASE_URL=http://127.0.0.1:1234/v1
-LOCAL_MODEL_API_KEY=not-needed
+MODEL_PROVIDER=gemini
+MODEL_NAME=gemini-3.1-flash-lite
+GOOGLE_API_KEY=your-key-here
 ```
 
-(`.env` is gitignored, so your keys never get committed.)
+(`.env` is gitignored, so your keys never get committed.) A local model is
+also supported (see the provider table below) but this agent's full system
+prompt + tools + skills is a few thousand tokens before your question even
+starts — small local models with a short context window (4-8K) can overflow
+on that. Gemini's free tier avoids the problem entirely.
 
 **4. Run the agent from the terminal**
 
@@ -108,18 +116,13 @@ curl -X POST http://127.0.0.1:8015/ask -H "Content-Type: application/json" -d "{
 | Google Gemini | `MODEL_PROVIDER=gemini` `MODEL_NAME=gemini-3.1-flash-lite` `GOOGLE_API_KEY=...` |
 | Local (vLLM / Ollama / LM Studio / SGLang) | `MODEL_PROVIDER=local` `MODEL_NAME=<model>` `LOCAL_MODEL_BASE_URL=http://localhost:8000/v1` |
 
-Notes:
-- The full agent prompt (system prompt + skills + tool schemas) is a few
-  thousand tokens before the conversation even starts. Small local models with
-  a short context window (e.g. a 4B model capped at ~6K tokens) can overflow
-  on this — widen the context window in your local server, or use a hosted
-  provider for anything beyond quick local smoke-testing.
-- A single request can trigger 5-10+ model calls (skill matching, tool calls,
-  the curator subagent), so on Gemini's free tier, pin `MODEL_NAME` to a
-  specific stable model rather than a `-latest` alias — those can silently
-  resolve to a brand-new preview model with a much stricter introductory
-  quota (as low as 5 requests/minute), which the agent will blow through
-  immediately.
+Note: a single request can trigger 5-10+ model calls (skill matching, tool
+calls, the curator subagent), so on Gemini's free tier, pin `MODEL_NAME` to a
+specific stable model rather than a `-latest` alias — those can silently
+resolve to a brand-new preview model with a much stricter introductory quota
+(as low as 5 requests/minute), which the agent will blow through immediately.
+`gemini-3.1-flash-lite` (the default above) is what this repo was verified
+against.
 
 ### Email notification (optional)
 
@@ -149,32 +152,27 @@ curl -X POST http://127.0.0.1:8015/ask -H "Content-Type: application/json" -d '{
 
 ### How filtering works
 
-`get_recent_models` only returns first-party, original releases — not raw API
-output:
-- **Variant filtering**: excludes anything declaring a `base_model`
-  relationship on the Hub (fine-tunes, quantizations, adapters, merges). This
-  is a real Hub metadata tag, not a name-guessing heuristic.
+`get_recent_models` doesn't return raw API output — it applies real signal
+filtering before the agent (or curator subagent) ever sees the list:
+- **Variant filtering**: Hugging Face auto-tags any model that declares a
+  `base_model` relationship (fine-tunes, quantizations, adapters, merges) —
+  a real Hub metadata tag, not a name-guessing heuristic. A third-party
+  variant with no real traction is dropped as noise. An *official* variant
+  (same org as the base model, e.g. the lab's own GGUF build) or a *popular*
+  community variant (20+ likes or 1,000+ downloads — see
+  `POPULAR_LIKES_THRESHOLD`/`POPULAR_DOWNLOADS_THRESHOLD` in `tools.py`) is
+  kept, but labeled `variant of <base>` so it reads as a new build of an
+  existing model, not a brand-new one.
 - **Seen-model tracking**: every model it returns gets recorded in
   `seen_models.json` (gitignored, local state) and is never reported again.
-  Combined with the discover-models skill's rule to skip `send_digest`
-  entirely when nothing new remains, this means **you only get an email when
-  there's something genuinely new to see** — no "nothing new today" spam, no
-  re-notifications for a model you've already been told about.
+
+Combined with the discover-models skill's rule to skip `send_digest` entirely
+when nothing new remains, this means **you only get an email when there's
+something genuinely new to see** — no "nothing new today" spam, no
+re-notifications for a model you've already been told about.
 
 If you delete `seen_models.json`, the next run treats everything currently
 within the time window as new again.
-
-### Running on a schedule (e.g. GitHub Actions)
-
-`seen_models.json` is what makes "only email me once per model" work — but it
-only works if that file persists between runs. A GitHub Actions runner is a
-fresh VM every time, so without extra steps it resets to empty on each
-scheduled run and the dedup does nothing. If you wire this up as a scheduled
-workflow, cache the file between runs (e.g. `actions/cache` keyed on a fixed
-key, restoring/saving `model-scout/seen_models.json`) or commit it back to the
-repo at the end of the job. Also remember: a hosted local server
-(`MODEL_PROVIDER=local`) isn't reachable from a GitHub-hosted runner — use
-`anthropic`, `azure`, or `gemini` for anything running off your own machine.
 
 ### Terminal chat UI
 
@@ -192,6 +190,29 @@ python chat_cli.py
 
 Type `exit` to quit.
 
+## Running on a schedule (GitHub Actions)
+
+The actual "production" use case here is a once-a-day batch job, not a
+hosted API — so there's no server to deploy. `.github/workflows/daily-digest.yml`
+runs `python agent.py "..."` on a schedule and emails you only if something
+genuinely new was found. To use it in your own fork:
+
+1. Add these as repo secrets (Settings → Secrets and variables → Actions):
+   `GOOGLE_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+   `EMAIL_FROM`, `EMAIL_TO`.
+2. The schedule is `0 18 * * *` (18:00 UTC = 23:30 IST) — GitHub Actions cron
+   is always UTC, so edit the expression if you want a different local time.
+3. Trigger it once manually from the Actions tab (**Run workflow**) to
+   confirm it works before trusting the schedule.
+
+Two things worth knowing:
+- `seen_models.json`'s dedup state persists across runs via `actions/cache`,
+  saved under a fresh key each run and restored by prefix match — GitHub's
+  cache action silently refuses to overwrite an existing key, so a naive
+  fixed-key setup would look like it works but never actually update.
+- `MODEL_PROVIDER=local` won't work in CI — a GitHub-hosted runner can't
+  reach a server on your machine. The workflow uses `gemini`.
+
 ## Verified with
 
 ```
@@ -208,5 +229,8 @@ markdown==3.10.2
 rich==15.0.0
 ```
 
-The Hugging Face tool calls and the agent build were run and confirmed working.
-The full LLM turn needs your own API key / endpoint.
+Everything in this README has been run end-to-end and confirmed working: the
+terminal agent, the FastAPI app, the terminal chat UI, real email delivery,
+and the scheduled GitHub Actions workflow (against Google Gemini's free
+tier). You'll need your own API key / SMTP credentials to run it yourself —
+none are bundled.
